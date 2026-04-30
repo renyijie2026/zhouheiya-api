@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+data.db
+.claude/
+各店数据/
+import_result.txt
+*.xlsx
+!*.html

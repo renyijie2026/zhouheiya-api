@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>周黑鸭 - 店长数据汇总</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f0f2f5; color: #333; -webkit-tap-highlight-color: transparent; }
+  .container { max-width: 900px; margin: 0 auto; padding: 12px; }
+
+  .header { background: #1a1a2e; color: #fff; padding: 16px; border-radius: 12px; margin-bottom: 12px; text-align: center; }
+  .header h1 { font-size: 20px; }
+  .header p { font-size: 12px; opacity: .7; margin-top: 2px; }
+
+  .toolbar { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
+  .toolbar .btn { padding: 10px 16px; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; min-height: 44px; }
+  .btn-refresh { background: #1a1a2e; color: #fff; }
+  .btn-import { background: #fff; color: #1a1a2e; border: 1px solid #ccc; }
+  .btn-export { background: #fff; color: #1a1a2e; border: 1px solid #ccc; }
+  .btn-clear { background: #fff; color: #e53935; border: 1px solid #ddd; }
+  .last-update { font-size: 11px; color: #999; margin-left: auto; }
+
+  .summary-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .chip { background: #fff; border-radius: 8px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.04); flex: 1; min-width: 70px; text-align: center; }
+  .chip .val { font-size: 20px; font-weight: bold; color: #1a1a2e; }
+  .chip .lbl { font-size: 11px; color: #888; }
+
+  .result { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.05); margin-bottom: 10px; }
+  .result table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 650px; }
+  .result th { background: #1a1a2e; color: #fff; padding: 10px 6px; font-size: 12px; position: sticky; top: 0; }
+  .result td { padding: 5px 6px; text-align: center; border-bottom: 1px solid #eee; font-size: 12px; }
+  .result td.name { text-align: left; font-weight: 500; }
+  .result tr:nth-child(even) td { background: #fafbfc; }
+  .result tr.total td { font-weight: bold; border-top: 2px solid #1a1a2e; background: #f0f4f8 !important; }
+  .result tr.section td { background: #f5f7fa; font-weight: bold; text-align: center; font-size: 12px; color: #555; }
+  .result-wrap { max-height: 60vh; overflow: auto; -webkit-overflow-scrolling: touch; }
+
+  .empty { text-align: center; padding: 60px 20px; color: #ccc; }
+  .empty .icon { font-size: 48px; }
+  .empty p { margin-top: 8px; font-size: 14px; }
+
+  .msg { text-align: center; font-size: 13px; min-height: 22px; padding: 4px 0; color: #4caf50; }
+  .msg.err { color: #e53935; }
+
+  /* Import modal */
+  .tabs { display: flex; gap: 0; margin-bottom: 12px; }
+  .tab { flex: 1; padding: 10px; text-align: center; background: #fff; border: 1px solid #ddd; font-size: 13px; font-weight: bold; cursor: pointer; }
+  .tab:first-child { border-radius: 8px 0 0 8px; }
+  .tab:last-child { border-radius: 0 8px 8px 0; }
+  .tab.active { background: #1a1a2e; color: #fff; border-color: #1a1a2e; }
+  .panel { display: none; margin-bottom: 10px; }
+  .panel.active { display: block; }
+  .panel textarea { width: 100%; height: 120px; border: 2px dashed #ccc; border-radius: 10px; padding: 10px; font-size: 12px; font-family: monospace; resize: vertical; }
+  .panel textarea:focus { outline: none; border-color: #1a1a2e; }
+  .panel .hint { font-size: 11px; color: #999; text-align: center; margin-top: 4px; }
+  .file-label { display: block; padding: 30px; border: 2px dashed #ccc; border-radius: 10px; background: #fafafa; text-align: center; cursor: pointer; font-size: 15px; color: #888; }
+  .file-label input { display: none; }
+  .file-names { margin-top: 6px; font-size: 12px; color: #888; }
+
+  @media (min-width: 768px) {
+    .container { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>店长数据汇总</h1>
+    <p>店员提交后实时可见，下拉刷新获取最新数据</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn btn-refresh" onclick="fetchFromCloud()">🔄 刷新数据</button>
+    <button class="btn btn-import" onclick="toggleImport()">📥 导入文件</button>
+    <button class="btn btn-export" onclick="exportMergedCSV()" id="btnExport" style="display:none">📤 导出CSV</button>
+    <span class="last-update" id="lastUpdate"></span>
+  </div>
+
+  <!-- Import section (hidden by default) -->
+  <div id="importSection" style="display:none">
+    <div class="tabs">
+      <div class="tab active" onclick="switchImportTab('paste')">📋 粘贴CSV</div>
+      <div class="tab" onclick="switchImportTab('file')">📁 选择文件</div>
+    </div>
+    <div class="panel active" id="panelPaste">
+      <textarea id="pasteArea" placeholder="店员微信发来的CSV文本，复制后粘贴到这里"></textarea>
+      <div class="hint">店员操作：录入页点「复制CSV」→ 微信发给店长</div>
+      <button class="btn btn-refresh" onclick="parsePasted()" style="width:100%;margin-top:8px">解析并汇总</button>
+    </div>
+    <div class="panel" id="panelFile">
+      <label class="file-label">📂 点击选择 ZIP 或 CSV 文件<input type="file" id="fileInput" multiple accept=".zip,.csv" onchange="handleFiles(this.files)"></label>
+      <div class="file-names" id="fileNames"></div>
+    </div>
+  </div>
+
+  <div class="summary-row" id="summaryRow"></div>
+  <div class="msg" id="msg"></div>
+
+  <div id="result" style="display:none">
+    <div class="result"><div class="result-wrap" id="resultWrap"></div></div>
+  </div>
+
+  <div class="empty" id="empty">
+    <div class="icon">📊</div>
+    <p>暂无数据</p>
+    <p style="font-size:12px;color:#bbb">店员提交数据后点击「刷新」</p>
+  </div>
+
+</div>
+
+<script>
+// ========== API 配置（Sealos部署后替换） ==========
+const API_BASE = 'http://localhost:5000/';
+
+let allEntries = []; // {store, date, items: [{product, up, yonghui, loss, taste, waste}], photoCount}
+
+// ========== 从云端获取数据 ==========
+async function fetchFromCloud() {
+  showMsg('刷新中...');
+  try {
+    const resp = await fetch(API_BASE + 'api/entries');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    allEntries = (Array.isArray(data) ? data : (data.results || [])).map(r => ({
+      id: r.id || r.objectId,
+      store: r.store,
+      date: r.date,
+      items: r.items || [],
+      photoCount: r.photo_count || r.photoCount || 0,
+      createdAt: r.created_at || r.createdAt
+    }));
+
+    // Deduplicate: keep latest per store+date
+    const seen = new Map();
+    allEntries.forEach(e => {
+      const key = `${e.store}|${e.date}`;
+      if (!seen.has(key)) seen.set(key, e);
+    });
+    allEntries = [...seen.values()];
+
+    const now = new Date().toLocaleTimeString();
+    document.getElementById('lastUpdate').textContent = `更新于 ${now}`;
+    render();
+    showMsg(`已加载 ${allEntries.length} 条记录`);
+  } catch(e) {
+    showMsg('加载失败: ' + e.message, true);
+  }
+}
+
+// ========== 本地导入（粘贴 / 文件） ==========
+function toggleImport() {
+  const el = document.getElementById('importSection');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function switchImportTab(name) {
+  document.querySelectorAll('#importSection .tab').forEach((t, i) => t.classList.toggle('active', (name==='paste'&&i===0)||(name==='file'&&i===1)));
+  document.getElementById('panelPaste').classList.toggle('active', name==='paste');
+  document.getElementById('panelFile').classList.toggle('active', name==='file');
+}
+
+function parseCSVText(text, source) {
+  const rows = [];
+  const lines = text.trim().split('\n');
+  let headerIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('门店') && lines[i].includes('商品名称')) { headerIdx = i; break; }
+  }
+  if (headerIdx < 0) return rows;
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const cols = lines[i].split(',');
+    if (cols.length < 8) continue;
+    const store = (cols[0]||'').trim(), date = (cols[1]||'').trim(), product = (cols[2]||'').trim();
+    if (!store || !product) continue;
+    rows.push({store, date, product, up:parseFloat(cols[3])||0, yonghui:parseFloat(cols[4])||0, loss:parseFloat(cols[5])||0, taste:parseFloat(cols[6])||0, waste:parseFloat(cols[7])||0, source});
+  }
+  return rows;
+}
+
+function parsePasted() {
+  const text = document.getElementById('pasteArea').value.trim();
+  if (!text) { showMsg('请粘贴CSV数据', true); return; }
+  const rows = parseCSVText(text, '粘贴');
+  if (!rows.length) { showMsg('格式错误，请检查', true); return; }
+  mergeLocalRows(rows);
+  document.getElementById('pasteArea').value = '';
+}
+
+async function handleFiles(files) {
+  let rows = [], names = [];
+  for (const f of files) {
+    names.push(f.name);
+    if (f.name.endsWith('.zip')) {
+      try {
+        const zip = await JSZip.loadAsync(f);
+        for (const [fn, zf] of Object.entries(zip.files)) {
+          if (fn.endsWith('.csv') && !zf.dir) rows = rows.concat(parseCSVText(await zf.async('string'), f.name));
+        }
+      } catch(e) { showMsg(`${f.name} 解析失败`, true); }
+    } else if (f.name.endsWith('.csv')) {
+      rows = rows.concat(parseCSVText(await f.text(), f.name));
+    }
+  }
+  document.getElementById('fileNames').innerHTML = names.map(n => `<span style="display:inline-block;background:#e8ecf1;padding:2px 8px;border-radius:10px;margin:2px;font-size:11px">${n}</span>`).join('');
+  if (!rows.length) { showMsg('未找到有效数据', true); return; }
+  mergeLocalRows(rows);
+}
+
+function mergeLocalRows(rows) {
+  // Convert flat rows to entry format
+  const grouped = {};
+  rows.forEach(r => {
+    const key = `${r.store}|${r.date}`;
+    if (!grouped[key]) grouped[key] = {store: r.store, date: r.date, items: [], photoCount: 0, id: 'local_'+Date.now()};
+    grouped[key].items.push({product: r.product, up: r.up, yonghui: r.yonghui, loss: r.loss, taste: r.taste, waste: r.waste});
+  });
+
+  // Merge: local entries replace cloud entries for same store+date
+  Object.values(grouped).forEach(e => {
+    allEntries = allEntries.filter(x => !(x.store === e.store && x.date === e.date));
+    allEntries.unshift(e);
+  });
+
+  document.getElementById('importSection').style.display = 'none';
+  render();
+  showMsg(`已导入 ${rows.length} 条`);
+}
+
+// ========== 渲染 ==========
+function render() {
+  const empty = document.getElementById('empty');
+  const result = document.getElementById('result');
+  const exportBtn = document.getElementById('btnExport');
+
+  if (!allEntries.length) {
+    empty.style.display = 'block'; result.style.display = 'none'; exportBtn.style.display = 'none';
+    document.getElementById('summaryRow').innerHTML = '';
+    return;
+  }
+  empty.style.display = 'none'; result.style.display = 'block'; exportBtn.style.display = '';
+
+  // Summary
+  const stores = [...new Set(allEntries.map(e => e.store))].sort();
+  const storeCounts = {};
+  allEntries.forEach(e => { storeCounts[e.store] = (storeCounts[e.store]||0) + e.items.length; });
+
+  document.getElementById('summaryRow').innerHTML = `
+    <div class="chip"><div class="val">${stores.length}</div><div class="lbl">门店</div></div>
+    <div class="chip"><div class="val">${allEntries.length}</div><div class="lbl">提交次数</div></div>
+    ${stores.map(s => `<div class="chip"><div class="val" style="font-size:13px">${s}</div><div class="lbl">${storeCounts[s]}条</div></div>`).join('')}
+  `;
+
+  // Group by store → product → sum
+  const storeGroups = {};
+  allEntries.forEach(e => {
+    if (!storeGroups[e.store]) storeGroups[e.store] = {};
+    (e.items || []).forEach(item => {
+      if (!storeGroups[e.store][item.product]) storeGroups[e.store][item.product] = {up:0,yonghui:0,loss:0,taste:0,waste:0};
+      const g = storeGroups[e.store][item.product];
+      g.up += item.up; g.yonghui += item.yonghui; g.loss += item.loss; g.taste += item.taste; g.waste += item.waste;
+    });
+  });
+
+  const products = [...new Set(allEntries.flatMap(e => (e.items||[]).map(i => i.product)))];
+  const metrics = [
+    {key:'up', label:'上货数量'},
+    {key:'yonghui', label:'永辉销售数量'},
+    {key:'loss', label:'报损金额'},
+    {key:'taste', label:'试吃金额'},
+    {key:'waste', label:'料渣金额'}
+  ];
+
+  let html = '<table><thead><tr><th>商品名称</th>';
+  stores.forEach(s => { html += `<th>${s}</th>`; });
+  html += '</tr></thead><tbody>';
+
+  metrics.forEach(m => {
+    html += `<tr class="section"><td colspan="${stores.length+1}">${m.label}</td></tr>`;
+    products.forEach(p => {
+      html += `<tr><td class="name">${p}</td>`;
+      stores.forEach(s => {
+        const v = storeGroups[s][p] ? storeGroups[s][p][m.key] : 0;
+        html += `<td>${v.toFixed(2)}</td>`;
+      });
+      html += '</tr>';
+    });
+    html += '<tr class="total"><td>合计</td>';
+    stores.forEach(s => {
+      let sum = 0; products.forEach(p => { sum += (storeGroups[s][p] ? storeGroups[s][p][m.key] : 0); });
+      html += `<td>${sum.toFixed(2)}</td>`;
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  document.getElementById('resultWrap').innerHTML = html;
+
+  // Detail list
+  html += '<div style="padding:12px;font-size:12px;color:#888;border-top:1px solid #eee">各门店提交记录：</div>';
+  allEntries.sort((a,b) => b.date.localeCompare(a.date) || a.store.localeCompare(b.store));
+  allEntries.forEach(e => {
+    html += `<div style="padding:4px 12px;font-size:11px;color:#555;display:flex;justify-content:space-between"><span>${e.store} | ${e.date}</span><span>${e.items.length}商品${e.photoCount ? ' 📷'+e.photoCount : ''}</span></div>`;
+  });
+
+  document.getElementById('resultWrap').innerHTML = html;
+}
+
+function exportMergedCSV() {
+  if (!allEntries.length) { showMsg('无数据', true); return; }
+  let lines = '门店,日期,商品名称,上货数量,永辉销售数量,报损金额,试吃金额,料渣金额\n';
+  allEntries.forEach(e => {
+    (e.items||[]).forEach(item => {
+      lines += `${e.store},${e.date},${item.product},${item.up},${item.yonghui},${item.loss},${item.taste},${item.waste}\n`;
+    });
+  });
+  const blob = new Blob(['﻿'+lines], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `各店汇总_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  URL.revokeObjectURL(url);
+  showMsg('已导出汇总CSV');
+}
+
+function showMsg(text, isError) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg' + (isError ? ' err' : '');
+  setTimeout(() => { el.textContent = ''; el.className = 'msg'; }, 3000);
+}
+
+// Auto-refresh on load
+fetchFromCloud();
+</script>
+</body>
+</html>

@@ -39,9 +39,9 @@ jobs:
 
       - name: Make package public
         run: |
-          gh api --method PATCH \
+          sleep 5
+          curl -s -X PATCH \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
-            /user/packages/container/zhouheiya-backend/visibility \
-            -f visibility=public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            https://api.github.com/user/packages/container/zhouheiya-backend/visibility \
+            -d '{"visibility":"public"}' || echo "::warning::手动设置: https://github.com/renyijie2026/zhouheiya-api/packages"

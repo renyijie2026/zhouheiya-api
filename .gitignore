@@ -1,0 +1,7 @@
+*.exe
+*.xlsx
+*.tmp
+~$*
+各店数据/
+__pycache__/
+*.pyc

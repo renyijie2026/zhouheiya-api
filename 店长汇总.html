@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>周黑鸭 - 店长数据汇总</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f0f2f5; color: #333; -webkit-tap-highlight-color: transparent; }
+  .container { max-width: 900px; margin: 0 auto; padding: 12px; }
+
+  .header { background: #1a1a2e; color: #fff; padding: 16px; border-radius: 12px; margin-bottom: 12px; text-align: center; }
+  .header h1 { font-size: 20px; }
+  .header p { font-size: 12px; opacity: .7; margin-top: 2px; }
+
+  .toolbar { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
+  .toolbar .btn { padding: 10px 16px; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; min-height: 44px; }
+  .btn-refresh { background: #1a1a2e; color: #fff; }
+  .btn-import { background: #fff; color: #1a1a2e; border: 1px solid #ccc; }
+  .btn-export { background: #fff; color: #1a1a2e; border: 1px solid #ccc; }
+  .btn-clear { background: #fff; color: #e53935; border: 1px solid #ddd; }
+  .btn-del { background: none; border: none; color: #ccc; font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1; }
+  .btn-del:hover { color: #e53935; }
+  .last-update { font-size: 11px; color: #999; margin-left: auto; }
+
+  .filter-bar { display: flex; gap: 6px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
+  .filter-bar label { font-size: 13px; color: #555; white-space: nowrap; }
+  .filter-bar input[type="date"] { padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; min-height: 40px; background: #fff; }
+  .filter-bar input[type="date"]:focus { outline: none; border-color: #1a1a2e; }
+  .filter-bar .btn-sm { padding: 8px 14px; border: none; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: pointer; min-height: 40px; }
+  .btn-filter-all { background: #fff; color: #1a1a2e; border: 1px solid #ccc; }
+
+  .summary-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .chip { background: #fff; border-radius: 8px; padding: 10px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.04); flex: 1; min-width: 70px; text-align: center; }
+  .chip .val { font-size: 20px; font-weight: bold; color: #1a1a2e; }
+  .chip .lbl { font-size: 11px; color: #888; }
+
+  .result { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.05); margin-bottom: 10px; }
+  .result-wrap { max-height: 65vh; overflow: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Store cards (mobile) */
+  .store-card { background: #fff; border-radius: 10px; margin-bottom: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .store-head { display: flex; align-items: center; padding: 10px 14px; background: #1a1a2e; color: #fff; cursor: pointer; user-select: none; gap: 10px; }
+  .store-head .arrow { transition: .2s; font-size: 14px; }
+  .store-card.open .store-head .arrow { transform: rotate(180deg); }
+  .store-body { display: none; }
+  .store-card.open .store-body { display: block; }
+  .store-body table { width: 100%; font-size: 12px; border-collapse: collapse; }
+  .store-body th { padding: 6px 2px; font-size: 10px; color: #666; background: #f0f2f5; position: sticky; top: 0; }
+  .store-body td { padding: 4px 2px; font-size: 11px; border-bottom: 1px solid #f0f0f0; text-align: right; }
+  .store-body td:first-child { text-align: left; }
+  .store-body .total td { font-weight: bold; border-top: 1px solid #ddd; background: #f0f4f8; }
+
+  .empty { text-align: center; padding: 60px 20px; color: #ccc; }
+  .empty .icon { font-size: 48px; }
+  .empty p { margin-top: 8px; font-size: 14px; }
+
+  .msg { text-align: center; font-size: 13px; min-height: 22px; padding: 4px 0; color: #4caf50; }
+  .msg.err { color: #e53935; }
+
+  .file-zone { border: 2px dashed #ccc; border-radius: 10px; padding: 30px; text-align: center; margin: 10px 0; background: #fafafa; cursor: pointer; }
+  .file-zone input { display: none; }
+  .file-zone .hint { font-size: 12px; color: #999; margin-top: 4px; }
+
+  @media (min-width: 768px) {
+    .container { padding: 20px; }
+    .result-wrap table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .result-wrap th { background: #1a1a2e; color: #fff; padding: 8px 6px; font-size: 12px; position: sticky; top: 0; z-index: 2; }
+    .result-wrap td { padding: 5px 6px; text-align: center; border-bottom: 1px solid #eee; font-size: 12px; white-space: nowrap; }
+    .result-wrap td.name { text-align: left; font-weight: 500; position: sticky; left: 0; background: #fff; z-index: 1; }
+    .result-wrap tr:nth-child(even) td { background: #fafbfc; }
+    .result-wrap tr:nth-child(even) td.name { background: #fafbfc; }
+    .result-wrap tr.total td { font-weight: bold; border-top: 2px solid #1a1a2e; background: #f0f4f8 !important; }
+    .result-wrap tr.section td { background: #f5f7fa; font-weight: bold; text-align: center; font-size: 11px; color: #555; }
+    .store-body { display: block !important; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>店长数据汇总</h1>
+    <p>店员提交后实时可见，下拉刷新获取最新数据</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn btn-refresh" onclick="fetchFromCloud()">🔄 刷新数据</button>
+    <button class="btn btn-import" onclick="toggleImport()">📥 导入文件</button>
+    <button class="btn btn-export" onclick="exportMergedCSV()" id="btnExport" style="display:none">📤 导出CSV</button>
+    <button class="btn btn-clear" onclick="clearAll()">🗑 清除数据</button>
+    <span class="last-update" id="lastUpdate"></span>
+  </div>
+
+  <div class="filter-bar" id="filterBar" style="display:none">
+    <label>筛选日期</label>
+    <input type="date" id="filterStart" onchange="applyFilter()">
+    <label>至</label>
+    <input type="date" id="filterEnd" onchange="applyFilter()">
+    <button class="btn-sm btn-filter-all" onclick="resetFilter()">全部</button>
+  </div>
+
+  <div id="importSection" style="display:none">
+    <div class="tabs" style="display:flex;gap:0;margin-bottom:8px">
+      <div class="tab active" onclick="switchImportTab('paste')" style="flex:1;padding:8px;text-align:center;font-size:13px;cursor:pointer;border-radius:8px 0 0 8px">📋 粘贴CSV</div>
+      <div class="tab" onclick="switchImportTab('file')" style="flex:1;padding:8px;text-align:center;background:#fff;border:1px solid #ddd;font-size:13px;cursor:pointer;border-radius:0 8px 8px 0">📁 选择文件</div>
+    </div>
+    <div id="panelPaste">
+      <textarea id="pasteArea" placeholder="店员微信发来的CSV文本，复制后粘贴到这里" style="width:100%;height:120px;border:2px dashed #ccc;border-radius:10px;padding:10px;font-size:12px;font-family:monospace;resize:vertical"></textarea>
+      <div class="hint" style="font-size:11px;color:#999;text-align:center;margin-top:4px">店员操作：录入页点「复制CSV」→ 微信发给店长</div>
+      <button class="btn btn-refresh" onclick="parsePasted()" style="width:100%;margin-top:8px">解析并汇总</button>
+    </div>
+    <div id="panelFile" style="display:none">
+      <label class="file-zone">📂 点击选择 CSV 或 ZIP 文件<input type="file" id="fileInput" multiple accept=".zip,.csv" onchange="handleFiles(this.files)"></label>
+      <div id="fileNames" style="font-size:12px;color:#888;margin-top:6px"></div>
+    </div>
+  </div>
+
+  <div class="summary-row" id="summaryRow"></div>
+  <div class="msg" id="msg"></div>
+
+  <div id="result" style="display:none">
+    <div class="result"><div class="result-wrap" id="resultWrap"></div></div>
+  </div>
+
+  <div class="empty" id="empty">
+    <div class="icon">📦</div>
+    <p>暂无数据</p>
+    <p style="font-size:12px;color:#bbb">店员提交数据后点击「刷新」</p>
+  </div>
+
+</div>
+
+<script>
+const API_BASE = 'https://vfoehvuitpjx.usw-1.sealos.app/';
+
+let allEntries = [];
+let filterStart = '', filterEnd = '';
+
+function getFilteredEntries() {
+  if (!filterStart && !filterEnd) return allEntries;
+  return allEntries.filter(e => {
+    if (filterStart && e.date < filterStart) return false;
+    if (filterEnd && e.date > filterEnd) return false;
+    return true;
+  });
+}
+
+async function fetchFromCloud() {
+  showMsg('刷新中...');
+  try {
+    const resp = await fetch(API_BASE + 'api/entries');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    allEntries = (Array.isArray(data) ? data : (data.results || [])).map(r => ({
+      id: r.id || r.objectId, store: r.store, date: r.date,
+      items: r.items || [], photoCount: r.photo_count || r.photoCount || 0,
+      createdAt: r.created_at || r.createdAt
+    }));
+
+    const seen = new Map();
+    allEntries.forEach(e => { const k = `${e.store}|${e.date}`; if (!seen.has(k)) seen.set(k, e); });
+    allEntries = [...seen.values()];
+
+    document.getElementById('lastUpdate').textContent = `更新于 ${new Date().toLocaleTimeString()}`;
+
+    // Show filter bar with date range
+    const allDates = [...new Set(allEntries.map(e => e.date))].sort();
+    if (allDates.length) {
+      document.getElementById('filterBar').style.display = 'flex';
+      document.getElementById('filterStart').min = allDates[0];
+      document.getElementById('filterStart').max = allDates[allDates.length-1];
+      document.getElementById('filterEnd').min = allDates[0];
+      document.getElementById('filterEnd').max = allDates[allDates.length-1];
+      if (!filterStart && !filterEnd) {
+        // keep filter inputs as-is if user set them
+      }
+    }
+
+    render();
+    showMsg(`已加载 ${allEntries.length} 条记录`);
+  } catch(e) { showMsg('加载失败: ' + e.message, true); }
+}
+
+function toggleImport() {
+  const el = document.getElementById('importSection');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function switchImportTab(name) {
+  const tabs = document.querySelectorAll('#importSection .tab');
+  tabs.forEach(t => {
+    const isActive = (name==='paste' && t.textContent.includes('粘贴')) || (name==='file' && t.textContent.includes('文件'));
+    t.classList.toggle('active', isActive);
+    t.style.background = isActive ? '#1a1a2e' : '#fff';
+    t.style.color = isActive ? '#fff' : '#333';
+    t.style.border = isActive ? 'none' : '1px solid #ddd';
+  });
+  document.getElementById('panelPaste').style.display = name==='paste' ? 'block' : 'none';
+  document.getElementById('panelFile').style.display = name==='file' ? 'block' : 'none';
+}
+
+function parseCSVText(text, source) {
+  const rows = [];
+  const lines = text.trim().split('\n');
+  let hi = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes('门店') && lines[i].includes('商品名称')) { hi = i; break; }
+  }
+  if (hi < 0) return rows;
+  for (let i = hi + 1; i < lines.length; i++) {
+    const cols = lines[i].split(',');
+    if (cols.length < 8) continue;
+    const store = (cols[0]||'').trim(), date = (cols[1]||'').trim(), product = (cols[2]||'').trim();
+    if (!store || !product) continue;
+    rows.push({store, date, product, up:parseFloat(cols[3])||0, restock:parseFloat(cols[4])||0, loss:parseFloat(cols[5])||0, gift:parseFloat(cols[6])||0, taste:parseFloat(cols[7])||0, source});
+  }
+  return rows;
+}
+
+function parsePasted() {
+  const text = document.getElementById('pasteArea').value.trim();
+  if (!text) { showMsg('请粘贴CSV数据', true); return; }
+  const rows = parseCSVText(text, '粘贴');
+  if (!rows.length) { showMsg('格式错误，请检查', true); return; }
+  mergeLocalRows(rows);
+  document.getElementById('pasteArea').value = '';
+}
+
+async function handleFiles(files) {
+  let rows = [], names = [];
+  for (const f of files) {
+    names.push(f.name);
+    if (f.name.endsWith('.zip')) {
+      try {
+        const zip = await JSZip.loadAsync(f);
+        for (const [fn, zf] of Object.entries(zip.files)) {
+          if (fn.endsWith('.csv') && !zf.dir) rows = rows.concat(parseCSVText(await zf.async('string'), f.name));
+        }
+      } catch(e) { showMsg(`${f.name} 解析失败`, true); }
+    } else if (f.name.endsWith('.csv')) {
+      rows = rows.concat(parseCSVText(await f.text(), f.name));
+    }
+  }
+  document.getElementById('fileNames').innerHTML = names.map(n => `<span style="display:inline-block;background:#e8ecf1;padding:2px 8px;border-radius:10px;margin:2px;font-size:11px">${n}</span>`).join('');
+  if (!rows.length) { showMsg('未找到有效数据', true); return; }
+  mergeLocalRows(rows);
+}
+
+function mergeLocalRows(rows) {
+  const grouped = {};
+  rows.forEach(r => {
+    const k = `${r.store}|${r.date}`;
+    if (!grouped[k]) grouped[k] = {store: r.store, date: r.date, items: [], photoCount: 0, id: 'local_'+Date.now()};
+    grouped[k].items.push({product: r.product, up: r.up, restock: r.restock, loss: r.loss, gift: r.gift, taste: r.taste});
+  });
+
+  Object.values(grouped).forEach(e => {
+    allEntries = allEntries.filter(x => !(x.store === e.store && x.date === e.date));
+    allEntries.unshift(e);
+  });
+
+  document.getElementById('importSection').style.display = 'none';
+  render();
+  showMsg(`已导入 ${rows.length} 条`);
+}
+
+function sn(n) { return n.replace('周黑鸭','').replace('（甜辣）','').replace('（','').replace('）',''); }
+
+function render() {
+  const entries = getFilteredEntries();
+  const empty = document.getElementById('empty');
+  const result = document.getElementById('result');
+  const exportBtn = document.getElementById('btnExport');
+
+  if (!entries.length) {
+    empty.style.display = 'block'; result.style.display = 'none'; exportBtn.style.display = 'none';
+    document.getElementById('summaryRow').innerHTML = '';
+    return;
+  }
+  empty.style.display = 'none'; result.style.display = 'block'; exportBtn.style.display = '';
+
+  const stores = [...new Set(entries.map(e => e.store))].sort();
+  const dates = [...new Set(entries.map(e => e.date))].sort();
+  const storeCounts = {};
+  entries.forEach(e => { storeCounts[e.store] = (storeCounts[e.store]||0) + e.items.length; });
+
+  const dateLabel = dates.length === 1 ? dates[0] : `${dates[0]} ~ ${dates[dates.length-1]}（${dates.length}天）`;
+
+  document.getElementById('summaryRow').innerHTML = [
+    `<div class="chip"><div class="val">${stores.length}</div><div class="lbl">门店</div></div>`,
+    `<div class="chip"><div class="val">${dates.length}</div><div class="lbl">日期数</div></div>`,
+    ...stores.map(s => `<div class="chip"><div class="val" style="font-size:13px">${s}</div><div class="lbl">${storeCounts[s]}条</div></div>`)
+  ].join('');
+
+  const storeGroups = {};
+  entries.forEach(e => {
+    if (!storeGroups[e.store]) storeGroups[e.store] = {};
+    (e.items || []).forEach(item => {
+      if (!storeGroups[e.store][item.product]) storeGroups[e.store][item.product] = {up:0,restock:0,loss:0,gift:0,taste:0};
+      const g = storeGroups[e.store][item.product];
+      g.up += (item.up || 0); g.restock += (item.restock || 0); g.loss += (item.loss || 0); g.gift += (item.gift || 0); g.taste += (item.taste || 0);
+    });
+  });
+
+  const products = [...new Set(entries.flatMap(e => (e.items||[]).map(i => i.product)))];
+  const metrics = [
+    {key:'up', label:'上货'}, {key:'restock', label:'补货'}, {key:'loss', label:'报损'},
+    {key:'gift', label:'赠送'}, {key:'taste', label:'试吃'}
+  ];
+  const isMobile = window.innerWidth < 768;
+  let html = `<div style="padding:8px 12px;font-size:12px;color:#888;border-bottom:1px solid #eee">汇总日期：${dateLabel}</div>`;
+
+  if (isMobile) {
+    stores.forEach((s, si) => {
+      let stUp=0, stRestock=0, stLoss=0, stGift=0, stTaste=0;
+      products.forEach(p => {
+        const g = storeGroups[s] && storeGroups[s][p];
+        if (g) { stUp+=g.up; stRestock+=g.restock; stLoss+=g.loss; stGift+=g.gift; stTaste+=g.taste; }
+      });
+
+      html += `<div class="store-card${si===0?' open':''}">`;
+      html += `<div class="store-head" onclick="this.parentElement.classList.toggle('open')">`;
+      html += `<span style="font-size:15px;font-weight:bold;flex:1">${s}</span>`;
+      html += `<span style="font-size:11px;opacity:.8">上货${stUp.toFixed(0)} 补货${stRestock.toFixed(0)}</span>`;
+      html += `<span class="arrow">▼</span></div>`;
+      html += `<div class="store-body"><table>`;
+      html += `<thead><tr><th style="text-align:left">商品</th>`;
+      metrics.forEach(m => { html += `<th style="text-align:right">${m.label}</th>`; });
+      html += `</tr></thead><tbody>`;
+
+      products.forEach(p => {
+        const g = storeGroups[s] && storeGroups[s][p];
+        html += `<tr><td>${sn(p)}</td>`;
+        metrics.forEach(m => { html += `<td>${(g ? g[m.key] : 0).toFixed(2)}</td>`; });
+        html += '</tr>';
+      });
+
+      html += `<tr class="total"><td>合计</td>`;
+      metrics.forEach(m => {
+        let t = 0; products.forEach(p => { t += (storeGroups[s] && storeGroups[s][p]) ? storeGroups[s][p][m.key] : 0; });
+        html += `<td>${t.toFixed(2)}</td>`;
+      });
+      html += '</tr>';
+      html += `</tbody></table></div></div>`;
+    });
+  } else {
+    html += '<table><thead><tr><th>商品名称</th>';
+    stores.forEach(s => { html += `<th>${s}</th>`; });
+    html += '</tr></thead><tbody>';
+
+    metrics.forEach(m => {
+      html += `<tr class="section"><td colspan="${stores.length+1}">${m.label}</td></tr>`;
+      products.forEach(p => {
+        html += `<tr><td class="name">${sn(p)}</td>`;
+        stores.forEach(s => {
+          const v = storeGroups[s] && storeGroups[s][p] ? storeGroups[s][p][m.key] : 0;
+          html += `<td>${v.toFixed(2)}</td>`;
+        });
+        html += '</tr>';
+      });
+      html += '<tr class="total"><td>合计</td>';
+      stores.forEach(s => {
+        let sum = 0; products.forEach(p => { sum += (storeGroups[s] && storeGroups[s][p]) ? storeGroups[s][p][m.key] : 0; });
+        html += `<td>${sum.toFixed(2)}</td>`;
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+  }
+
+  html += '<div style="padding:12px;font-size:12px;color:#888;border-top:1px solid #eee">各门店提交记录：</div>';
+  entries.sort((a,b) => b.date.localeCompare(a.date) || a.store.localeCompare(b.store));
+  entries.forEach(e => {
+    html += `<div style="padding:4px 12px;font-size:11px;color:#555;display:flex;justify-content:space-between;align-items:center"><span>${e.store} | ${e.date}</span><span>${e.items.length}商品${e.photoCount ? ' 📷'+e.photoCount : ''} <button class="btn-del" onclick="event.stopPropagation();deleteCloudEntry('${e.id}')" title="从云端删除">×</button></span></div>`;
+  });
+
+  document.getElementById('resultWrap').innerHTML = html;
+}
+
+function applyFilter() {
+  filterStart = document.getElementById('filterStart').value;
+  filterEnd = document.getElementById('filterEnd').value;
+  render();
+}
+
+function resetFilter() {
+  filterStart = ''; filterEnd = '';
+  document.getElementById('filterStart').value = '';
+  document.getElementById('filterEnd').value = '';
+  render();
+}
+
+function exportMergedCSV() {
+  const entries = getFilteredEntries();
+  if (!entries.length) { showMsg('无数据', true); return; }
+  let lines = '门店,日期,商品名称,上货数量,补货数量,报损数量,赠送数量,试吃数量\n';
+  entries.forEach(e => {
+    (e.items||[]).forEach(item => {
+      lines += `${e.store},${e.date},${item.product},${item.up||0},${item.restock||0},${item.loss||0},${item.gift||0},${item.taste||0}\n`;
+    });
+  });
+  const blob = new Blob(['﻿'+lines], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `各店汇总_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  showMsg('已导出汇总CSV');
+}
+
+async function deleteCloudEntry(eid) {
+  if (!confirm('确定从云端删除该条记录？')) return;
+  try {
+    const resp = await fetch(API_BASE + 'api/entries/' + encodeURIComponent(eid), { method: 'DELETE' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    allEntries = allEntries.filter(e => e.id !== eid);
+    render();
+    showMsg('已从云端删除');
+  } catch(e) { showMsg('删除失败: ' + e.message, true); }
+}
+
+async function clearAll() {
+  if (!confirm('确定删除云端全部数据？此操作不可恢复。')) return;
+  showMsg('删除中...');
+  try {
+    const resp = await fetch(API_BASE + 'api/entries', { method: 'DELETE' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    allEntries = [];
+    filterStart = ''; filterEnd = '';
+    document.getElementById('filterStart').value = '';
+    document.getElementById('filterEnd').value = '';
+    document.getElementById('filterBar').style.display = 'none';
+    document.getElementById('result').style.display = 'none';
+    document.getElementById('btnExport').style.display = 'none';
+    document.getElementById('empty').style.display = 'block';
+    document.getElementById('summaryRow').innerHTML = '';
+    document.getElementById('resultWrap').innerHTML = '';
+    showMsg(`已从云端删除 ${data.deleted} 条记录`);
+  } catch(e) { showMsg('删除失败: ' + e.message, true); }
+}
+
+function showMsg(text, isError) {
+  const el = document.getElementById('msg');
+  el.textContent = text; el.className = 'msg' + (isError ? ' err' : '');
+  setTimeout(() => { el.textContent = ''; el.className = 'msg'; }, 3000);
+}
+
+fetchFromCloud();
+</script>
+</body>
+</html>

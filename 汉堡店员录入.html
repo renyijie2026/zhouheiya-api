@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>汉堡 - 店员库存录入</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f0f2f5; color: #333; -webkit-tap-highlight-color: transparent; }
+  .container { max-width: 800px; margin: 0 auto; padding: 10px; }
+
+  .header { background: #c62828; color: #fff; padding: 14px 16px; border-radius: 12px; margin-bottom: 8px; }
+  .header h1 { font-size: 18px; text-align: center; margin-bottom: 10px; }
+  .header-row { display: flex; gap: 8px; align-items: center; }
+  .header-row label { font-size: 14px; white-space: nowrap; }
+  .header-row select, .header-row input { flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 16px; background: #fff; min-height: 44px; }
+
+  .section-title { font-size: 14px; font-weight: bold; color: #c62828; padding: 10px 14px 6px; background: #fff; border-radius: 10px 10px 0 0; margin-top: 8px; }
+  .card { background: #fff; border-radius: 0 0 10px 10px; margin-bottom: 6px; box-shadow: 0 1px 3px rgba(0,0,0,.05); overflow: hidden; }
+  .card.first { border-radius: 10px; }
+  .card-head { display: flex; align-items: center; padding: 10px 14px; min-height: 44px; cursor: pointer; user-select: none; border-bottom: 1px solid #f5f5f5; }
+  .card-head .idx { width: 26px; height: 26px; border-radius: 50%; background: #e0e0e0; text-align: center; line-height: 26px; font-size: 12px; font-weight: bold; color: #666; flex-shrink: 0; margin-right: 10px; }
+  .card-head .name { flex: 1; font-size: 14px; font-weight: 500; }
+  .card-head .arrow { font-size: 12px; color: #999; transition: .2s; }
+  .card.open .card-head .arrow { transform: rotate(180deg); }
+
+  .card-body { display: none; padding: 0 14px 10px; }
+  .card.open .card-body { display: block; }
+  .card.edit .card-head { background: #fff3e0; }
+
+  .field-row { display: flex; align-items: center; margin-bottom: 6px; gap: 8px; }
+  .field-row label { width: 60px; font-size: 13px; color: #555; flex-shrink: 0; }
+  .field-row input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; text-align: right; min-height: 44px; }
+  .field-row input:focus { outline: none; border-color: #c62828; }
+
+  .summary { background: #c62828; color: #fff; border-radius: 12px; padding: 12px 16px; margin: 10px 0; }
+  .summary h3 { font-size: 14px; margin-bottom: 6px; opacity: .8; }
+  .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 12px; }
+  .summary-grid span { font-weight: bold; }
+
+  .actions { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
+  .btn { flex: 1; min-width: 70px; padding: 14px 6px; border: none; border-radius: 10px; font-size: 14px; font-weight: bold; cursor: pointer; min-height: 48px; }
+  .btn-submit { background: #c62828; color: #fff; }
+  .btn-csv { background: #1a1a2e; color: #fff; }
+  .btn-expand { background: #fff; color: #1a1a2e; border: 1px solid #ccc; }
+  .btn-clear { background: #fff; color: #e53935; border: 1px solid #ddd; }
+  .msg { text-align: center; font-size: 13px; min-height: 22px; padding: 4px 0; color: #4caf50; }
+  .msg.err { color: #e53935; }
+
+  .status-bar { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #888; margin-bottom: 6px; text-align: center; justify-content: center; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; }
+  .status-dot.synced { background: #4caf50; }
+  .status-dot.unsynced { background: #ff9800; }
+
+  @media (min-width: 768px) {
+    .container { max-width: 1100px; padding: 16px; }
+    .header h1 { font-size: 22px; }
+    .card-head { cursor: default; }
+    .card-body { display: block !important; }
+    .card-head .arrow { display: none; }
+    .card { display: flex; align-items: flex-start; padding: 0; }
+    .card-head { flex: 0 0 160px; padding: 8px 10px; background: none !important; border-right: 1px solid #eee; min-height: 50px; align-items: center; border-bottom: none; }
+    .card-body { flex: 1; display: flex !important; flex-wrap: nowrap; padding: 6px 8px; gap: 4px; align-items: center; }
+    .card-body .field-row { flex: 0 0 auto; margin: 0; }
+    .card-body .field-row label { display: none; }
+    .card-body .field-row input { width: 80px; flex: none; font-size: 13px; padding: 5px 4px; min-height: auto; }
+    .card-head .idx { width: 24px; height: 24px; line-height: 24px; font-size: 11px; margin-right: 6px; }
+    .card-head .name { font-size: 13px; }
+    .summary { display: none; }
+    .btn-expand { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>汉堡 库存盘点</h1>
+    <div class="header-row">
+      <label>门店</label>
+      <select id="store"></select>
+      <label>日期</label>
+      <input type="date" id="date">
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <span class="status-dot" id="statusDot"></span>
+    <span id="statusText">本地暂存</span>
+  </div>
+
+  <div id="cards"></div>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="actions">
+    <button class="btn btn-submit" onclick="submitToCloud()">☁️ 提交数据<br><small style="font-weight:normal">店长实时可见</small></button>
+    <button class="btn btn-csv" onclick="copyCSV()">📋 复制CSV</button>
+    <button class="btn btn-expand" id="btnExpand" onclick="toggleAll()">展开</button>
+    <button class="btn btn-clear" onclick="clearAll()">清空</button>
+  </div>
+  <div class="msg" id="msg"></div>
+
+</div>
+
+<script>
+// ========== 配置 ==========
+const API_BASE = 'https://rgpffikvksqy.usw-1.sealos.app/';
+
+const PRODUCTS = ['面包坯','起酥油','沙拉酱','千岛酱','裹粉','金龙鱼油','菠萝','番茄沙司','翅根盒','抽纸','手套','湿巾','生菜','青椒','辣鸡腿','不辣鸡腿','卤肉','汤','千层饼','鳕鱼','鸡翅根','薯条','地瓜丸','洋葱圈','鲜奶布丁','鸡叉骨','翅根','锅盔'];
+
+const STORES = ['新街口','新辰里','大兴黄村','华贸','中关村','玉蜓桥','海光寺','北辰','宁河','沙河'];
+const METRICS = [{key:'qty', label:'剩余库存（箱）'}];
+
+const storeSel = document.getElementById('store');
+const dateInp = document.getElementById('date');
+
+STORES.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; storeSel.appendChild(o); });
+
+// Set date to last day of current month
+const now = new Date();
+const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0);
+dateInp.value = lastDay.toISOString().slice(0,10);
+
+const saved = localStorage.getItem('burger_entry');
+let state = {};
+if (saved) {
+  try { state = JSON.parse(saved); } catch(e) {}
+}
+if (state.store && STORES.includes(state.store)) storeSel.value = state.store;
+if (state.date) dateInp.value = state.date;
+
+// Flatten products for indexing
+const FLAT = PRODUCTS.map(p => ({cat:'', name: p}));
+
+function saveState() {
+  readForm();
+  try { localStorage.setItem('burger_entry', JSON.stringify(state)); } catch(e) {}
+}
+
+const cardsEl = document.getElementById('cards');
+function buildCards() {
+  cardsEl.innerHTML = '';
+  PRODUCTS.forEach((p, idx) => {
+    const pd = state[idx] || {};
+    const hasData = !isNaN(parseFloat(pd.qty)) && parseFloat(pd.qty) !== 0;
+    const card = document.createElement('div');
+    card.className = 'card' + (pd._open ? ' open' : '') + (hasData ? ' edit' : '');
+    card.innerHTML = `
+      <div class="card-head" onclick="toggleCard(${idx})">
+        <span class="idx">${idx+1}</span><span class="name">${p}</span>
+        <span class="arrow">▼</span>
+      </div>
+      <div class="card-body">
+        ${METRICS.map(m => `<div class="field-row"><label>${m.label}</label><input type="number" step="0.01" min="0" data-prod="${idx}" data-col="${m.key}" value="${pd[m.key] || ''}" onchange="onChange()" inputmode="decimal"></div>`).join('')}
+      </div>`;
+    cardsEl.appendChild(card);
+  });
+  updateSummary();
+  updateStatus();
+}
+buildCards();
+
+function toggleCard(i) { if (!state[i]) state[i] = {}; state[i]._open = !state[i]._open; cardsEl.querySelectorAll('.card')[i].classList.toggle('open'); saveState(); }
+function toggleAll() {
+  const anyClosed = FLAT.some((_, i) => !(state[i] && state[i]._open));
+  FLAT.forEach((_, i) => { if (!state[i]) state[i] = {}; state[i]._open = anyClosed; });
+  buildCards(); saveState();
+  document.getElementById('btnExpand').textContent = anyClosed ? '折叠全部' : '展开全部';
+}
+
+function updateSummary() {
+  const el = document.getElementById('summary');
+  let html = '<h3>合计</h3><div class="summary-grid">';
+  METRICS.forEach(m => {
+    let sum = 0;
+    FLAT.forEach((_, i) => { const v = parseFloat(state[i]?.[m.key]); if (!isNaN(v)) sum += v; });
+    html += `<div>${m.label}: <span>${sum.toFixed(2)}</span></div>`;
+  });
+  html += '</div>';
+  if (state._synced) html += `<div style="margin-top:6px;font-size:12px;opacity:.7">已同步 ${state._syncedAt||''}</div>`;
+  el.innerHTML = html;
+}
+
+function readForm() {
+  state.store = storeSel.value; state.date = dateInp.value;
+  cardsEl.querySelectorAll('input[data-prod]').forEach(inp => {
+    const i = +inp.dataset.prod, c = inp.dataset.col;
+    if (!state[i]) state[i] = {};
+    state[i][c] = inp.value;
+  });
+}
+
+function onChange() {
+  readForm(); saveState(); updateSummary();
+  const cards = cardsEl.querySelectorAll('.card');
+  FLAT.forEach((_, i) => {
+    const hasData = !isNaN(parseFloat(state[i]?.qty)) && parseFloat(state[i]?.qty) !== 0;
+    if (cards[i]) cards[i].classList.toggle('edit', hasData);
+  });
+  state._synced = false;
+  updateStatus();
+}
+
+function updateStatus() {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  if (state._synced) {
+    dot.className = 'status-dot synced';
+    txt.textContent = '已提交 ' + (state._syncedAt || '');
+  } else if (state._submitting) {
+    dot.className = 'status-dot';
+    dot.style.background = '#2196f3';
+    txt.textContent = '提交中...';
+  } else {
+    dot.className = 'status-dot unsynced';
+    txt.textContent = '未提交';
+  }
+}
+
+async function submitToCloud() {
+  readForm();
+  if (!state.store || !state.date) { showMsg('请选择门店和日期', true); return; }
+
+  const hasData = FLAT.some((_, i) => { const v = parseFloat(state[i]?.qty); return !isNaN(v) && v !== 0; });
+  if (!hasData) { showMsg('请至少填写一条数据', true); return; }
+
+  state._submitting = true; updateStatus();
+  showMsg('提交中...');
+
+  const items = FLAT.map((p, i) => ({
+    product: p.name,
+    qty: parseFloat(state[i]?.qty) || 0
+  }));
+
+  try {
+    const resp = await fetch(API_BASE + 'api/entries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ store: state.store, date: state.date, items: items, photo_count: 0 })
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || `HTTP ${resp.status}`);
+    }
+
+    state._synced = true;
+    state._syncedAt = new Date().toLocaleTimeString();
+    saveState();
+    updateSummary();
+    updateStatus();
+    showMsg('提交成功！');
+  } catch(e) {
+    state._submitting = false; updateStatus();
+    showMsg('提交失败: ' + e.message, true);
+  }
+}
+
+function buildCSVText() {
+  readForm();
+  const store = storeSel.value, date = dateInp.value;
+  let lines = '门店,日期,商品名称,剩余库存（箱）\n';
+  FLAT.forEach((p, i) => {
+    const v = parseFloat(state[i]?.qty);
+    lines += `${store},${date},${p.name},${isNaN(v) ? '0' : v}\n`;
+  });
+  return {text: '﻿' + lines, store, date};
+}
+
+function copyCSV() {
+  const {text, store, date} = buildCSVText();
+  if (!store || !date) { showMsg('请选择门店和日期', true); return; }
+  const plain = text.replace(/^﻿/, '');
+  navigator.clipboard.writeText(plain).then(() => showMsg('已复制，到微信粘贴发给店长')).catch(() => {
+    const ta = document.createElement('textarea'); ta.value = plain;
+    ta.style.cssText = 'position:fixed;left:-9999px'; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    showMsg('已复制');
+  });
+}
+
+function clearAll() {
+  if (!confirm('确定清空所有数据？')) return;
+  state = {}; localStorage.removeItem('burger_entry');
+  buildCards(); showMsg('已清空');
+}
+
+function showMsg(text, isError) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg' + (isError ? ' err' : '');
+  setTimeout(() => { el.textContent = ''; el.className = 'msg'; }, 4000);
+}
+
+storeSel.addEventListener('change', saveState);
+dateInp.addEventListener('change', saveState);
+</script>
+</body>
+</html>

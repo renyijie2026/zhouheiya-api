@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>周黑鸭 - 店员数据录入</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f0f2f5; color: #333; -webkit-tap-highlight-color: transparent; }
+  .container { max-width: 800px; margin: 0 auto; padding: 10px; }
+
+  .header { background: #1a1a2e; color: #fff; padding: 14px 16px; border-radius: 12px; margin-bottom: 8px; }
+  .header h1 { font-size: 18px; text-align: center; margin-bottom: 10px; }
+  .header-row { display: flex; gap: 8px; align-items: center; }
+  .header-row label { font-size: 14px; white-space: nowrap; }
+  .header-row select, .header-row input { flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 16px; background: #fff; min-height: 44px; }
+
+  .card { background: #fff; border-radius: 10px; margin-bottom: 6px; box-shadow: 0 1px 3px rgba(0,0,0,.05); overflow: hidden; }
+  .card-head { display: flex; align-items: center; padding: 10px 14px; min-height: 44px; cursor: pointer; user-select: none; }
+  .card-head .idx { width: 28px; height: 28px; border-radius: 50%; background: #e0e0e0; text-align: center; line-height: 28px; font-size: 13px; font-weight: bold; color: #666; flex-shrink: 0; margin-right: 10px; }
+  .card-head .name { flex: 1; font-size: 15px; font-weight: 600; }
+  .card-head .badge { font-size: 11px; background: #4caf50; color: #fff; padding: 2px 8px; border-radius: 10px; margin-right: 6px; }
+  .card-head .arrow { font-size: 12px; color: #999; transition: .2s; }
+  .card.open .card-head .arrow { transform: rotate(180deg); }
+
+  .card-body { display: none; padding: 0 14px 10px; }
+  .card.open .card-body { display: block; }
+  .card.edit .card-head { background: #e3f2fd; }
+
+  .field-row { display: flex; align-items: center; margin-bottom: 6px; gap: 8px; }
+  .field-row label { width: 110px; font-size: 13px; color: #555; flex-shrink: 0; }
+  .field-row input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; text-align: right; min-height: 44px; }
+  .field-row input:focus { outline: none; border-color: #1a1a2e; }
+
+  .photo-section { margin-top: 8px; }
+  .photo-section .label { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .photo-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  .photo-item { width: 64px; height: 64px; border-radius: 6px; position: relative; overflow: hidden; border: 1px solid #ddd; background: #f5f5f5; flex-shrink: 0; }
+  .photo-item img { width: 100%; height: 100%; object-fit: cover; }
+  .photo-item .del { position: absolute; top: 0; right: 0; width: 20px; height: 20px; background: rgba(0,0,0,.5); color: #fff; border: none; font-size: 14px; line-height: 20px; text-align: center; cursor: pointer; border-radius: 0 6px 0 6px; }
+  .photo-add { width: 64px; height: 64px; border-radius: 6px; border: 2px dashed #ccc; background: #fafafa; font-size: 28px; color: #aaa; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+  .summary { background: #1a1a2e; color: #fff; border-radius: 12px; padding: 12px 16px; margin: 10px 0; }
+  .summary h3 { font-size: 14px; margin-bottom: 6px; opacity: .8; }
+  .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 12px; }
+  .summary-grid span { font-weight: bold; }
+
+  .actions { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
+  .btn { flex: 1; min-width: 70px; padding: 14px 6px; border: none; border-radius: 10px; font-size: 14px; font-weight: bold; cursor: pointer; min-height: 48px; }
+  .btn-submit { background: #e65100; color: #fff; }
+  .btn-csv { background: #1a1a2e; color: #fff; }
+  .btn-zip { background: #fff; color: #1a1a2e; border: 1px solid #ccc; }
+  .btn-expand { background: #fff; color: #1a1a2e; border: 1px solid #ccc; }
+  .btn-clear { background: #fff; color: #e53935; border: 1px solid #ddd; }
+  .msg { text-align: center; font-size: 13px; min-height: 22px; padding: 4px 0; color: #4caf50; }
+  .msg.err { color: #e53935; }
+
+  .status-bar { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #888; margin-bottom: 6px; text-align: center; justify-content: center; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; }
+  .status-dot.synced { background: #4caf50; }
+  .status-dot.unsynced { background: #ff9800; }
+
+  @media (min-width: 768px) {
+    .container { max-width: 1100px; padding: 16px; }
+    .header h1 { font-size: 22px; }
+    .card-head { cursor: default; }
+    .card-body { display: block !important; }
+    .card-head .arrow { display: none; }
+    .card { display: flex; align-items: flex-start; padding: 0; }
+    .card-head { flex: 0 0 170px; padding: 8px 10px; background: none !important; border-right: 1px solid #eee; min-height: 50px; align-items: center; }
+    .card-body { flex: 1; display: flex !important; flex-wrap: nowrap; padding: 6px 8px; gap: 4px; align-items: center; }
+    .card-body .field-row { flex: 0 0 auto; margin: 0; }
+    .card-body .field-row label { display: none; }
+    .card-body .field-row input { width: 80px; flex: none; font-size: 13px; padding: 5px 4px; min-height: auto; }
+    .card-head .idx { width: 24px; height: 24px; line-height: 24px; font-size: 11px; margin-right: 6px; }
+    .card-head .name { font-size: 13px; }
+    .photo-item, .photo-add { width: 40px; height: 40px; border-radius: 4px; }
+    .photo-item .del { width: 14px; height: 14px; font-size: 10px; border-radius: 0 4px 0 4px; }
+    .photo-add { font-size: 20px; }
+    .card-head .badge { display: none; }
+    .summary { display: none; }
+    .btn-expand { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>周黑鸭 数据录入</h1>
+    <div class="header-row">
+      <label>门店</label>
+      <select id="store"></select>
+      <label>日期</label>
+      <input type="date" id="date">
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <span class="status-dot" id="statusDot"></span>
+    <span id="statusText">本地暂存</span>
+  </div>
+
+  <div id="cards"></div>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="actions">
+    <button class="btn btn-submit" onclick="submitToCloud()">☁️ 提交数据<br><small style="font-weight:normal">店长实时可见</small></button>
+    <button class="btn btn-csv" onclick="copyCSV()">📋 复制CSV</button>
+    <button class="btn btn-zip" onclick="shareZIP()">📦 照片包</button>
+    <button class="btn btn-expand" id="btnExpand" onclick="toggleAll()">展开</button>
+    <button class="btn btn-clear" onclick="clearAll()">清空</button>
+  </div>
+  <div class="msg" id="msg"></div>
+
+  <input type="file" id="photoInput" accept="image/*" capture="environment" style="display:none" onchange="onPhotoSelected(event)">
+</div>
+
+<script>
+// ========== API 配置（Sealos部署后替换） ==========
+// 部署成功后把下面URL换成你的：https://你的域名/  (末尾保留 /)
+const API_BASE = 'https://vfoehvuitpjx.usw-1.sealos.app/';
+
+// ========== 数据 ==========
+const PRODUCTS = ["周黑鸭卤鸭肠","周黑鸭切片鸭胗","周黑鸭香辣莲藕","周黑鸭卤鸭锁骨（甜辣）","周黑鸭卤鸭头（甜辣）","周黑鸭卤香干","周黑鸭卤鸭脆肠","周黑鸭五香鸭翅","周黑鸭卤鸭翅（甜辣）","周黑鸭卤鸭脖（甜辣）","周黑鸭干煸辣子鸡","周黑鸭卤鸭掌（甜辣）","周黑鸭五香鸭脖","周黑鸭虎皮鸡爪","周黑鸭卤鸡翅尖","周黑鸭卤鸭舌（甜辣）","周黑鸭卤酱板鸭"];
+const STORES = ['尚峰','宣化','民心','长安','定州','未来石'];
+const COLS = [
+  {key:'up', label:'上货数量'},
+  {key:'restock', label:'补货数量'},
+  {key:'loss', label:'报损数量'},
+  {key:'gift', label:'赠送数量'},
+  {key:'taste', label:'试吃数量'}
+];
+const MAX_PHOTOS = 7;
+
+const storeSel = document.getElementById('store');
+const dateInp = document.getElementById('date');
+const photoInput = document.getElementById('photoInput');
+let pendingPhotoIdx = -1;
+
+STORES.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; storeSel.appendChild(o); });
+dateInp.value = new Date().toISOString().slice(0,10);
+
+const saved = localStorage.getItem('zhouheiya_entry_v2');
+let state = {};
+if (saved) {
+  try { state = JSON.parse(saved); } catch(e) {}
+}
+if (state.store && STORES.includes(state.store)) storeSel.value = state.store;
+if (state.date) dateInp.value = state.date;
+
+function saveState() {
+  readForm();
+  try { localStorage.setItem('zhouheiya_entry_v2', JSON.stringify(state)); } catch(e) {}
+}
+
+// ========== 卡片构建 ==========
+const cardsEl = document.getElementById('cards');
+function buildCards() {
+  cardsEl.innerHTML = '';
+  PRODUCTS.forEach((p, i) => {
+    const pd = state[i] || {};
+    const photos = pd._photos || [];
+    const hasData = COLS.some(c => { const v = parseFloat(pd[c.key]); return !isNaN(v) && v !== 0; });
+    const card = document.createElement('div');
+    card.className = 'card' + (pd._open ? ' open' : '') + (hasData ? ' edit' : '');
+    const photoHTML = `
+      <div class="photo-section">
+        <div class="photo-grid">
+          ${photos.map((ph, pi) => `
+            <div class="photo-item"><img src="${ph}" alt=""><button class="del" onclick="event.stopPropagation();delPhoto(${i},${pi})">×</button></div>
+          `).join('')}
+          ${photos.length < MAX_PHOTOS ? `<button class="photo-add" onclick="event.stopPropagation();triggerPhoto(${i})">+</button>` : ''}
+        </div>
+      </div>`;
+    card.innerHTML = `
+      <div class="card-head" onclick="toggleCard(${i})">
+        <span class="idx">${i+1}</span><span class="name">${p}</span>
+        ${photos.length ? `<span class="badge">📷${photos.length}</span>` : ''}
+        <span class="arrow">▼</span>
+      </div>
+      <div class="card-body">
+        ${COLS.map(c => `<div class="field-row"><label>${c.label}</label><input type="number" step="0.01" min="0" data-prod="${i}" data-col="${c.key}" value="${pd[c.key] || ''}" onchange="onChange()" inputmode="decimal"></div>`).join('')}
+        ${photoHTML}
+      </div>`;
+    cardsEl.appendChild(card);
+  });
+  updateSummary();
+  updateStatus();
+}
+buildCards();
+
+function toggleCard(i) { if (!state[i]) state[i] = {}; state[i]._open = !state[i]._open; cardsEl.children[i].classList.toggle('open'); saveState(); }
+function toggleAll() {
+  const anyClosed = PRODUCTS.some((_, i) => !(state[i] && state[i]._open));
+  PRODUCTS.forEach((_, i) => { if (!state[i]) state[i] = {}; state[i]._open = anyClosed; });
+  buildCards(); saveState();
+  document.getElementById('btnExpand').textContent = anyClosed ? '折叠全部' : '展开全部';
+}
+
+function triggerPhoto(i) { pendingPhotoIdx = i; photoInput.click(); }
+
+async function onPhotoSelected(e) {
+  const file = e.target.files[0];
+  if (!file || pendingPhotoIdx < 0) return;
+  const i = pendingPhotoIdx; pendingPhotoIdx = -1; photoInput.value = '';
+  const thumb = await compressImage(file, 400);
+  if (!state[i]) state[i] = {};
+  if (!state[i]._photos) state[i]._photos = [];
+  state[i]._photos.push(thumb);
+  state[i]._open = true;
+  saveState(); buildCards();
+}
+
+function compressImage(file, maxW) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      const img = new Image();
+      img.onload = function() {
+        const canvas = document.createElement('canvas');
+        let w = img.width, h = img.height;
+        if (w > maxW) { h = h * maxW / w; w = maxW; }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.65));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function delPhoto(i, pi) {
+  if (!state[i] || !state[i]._photos) return;
+  state[i]._photos.splice(pi, 1);
+  if (!state[i]._photos.length) delete state[i]._photos;
+  saveState(); buildCards();
+}
+
+// ========== 合计 ==========
+function updateSummary() {
+  const el = document.getElementById('summary');
+  let html = '<h3>合计</h3><div class="summary-grid">';
+  COLS.forEach(c => {
+    let sum = 0;
+    PRODUCTS.forEach((_, i) => { const v = parseFloat(state[i]?.[c.key]); if (!isNaN(v)) sum += v; });
+    html += `<div>${c.label}: <span>${sum.toFixed(2)}</span></div>`;
+  });
+  html += '</div>';
+  const tp = PRODUCTS.reduce((s, _, i) => s + (state[i]?._photos?.length || 0), 0);
+  if (tp) html += `<div style="margin-top:6px;font-size:12px;opacity:.7">照片: ${tp} 张 | 状态: ${state._synced ? '已同步' : '未提交'}</div>`;
+  el.innerHTML = html;
+}
+
+function readForm() {
+  state.store = storeSel.value; state.date = dateInp.value;
+  cardsEl.querySelectorAll('input[data-prod]').forEach(inp => {
+    const i = +inp.dataset.prod, c = inp.dataset.col;
+    if (!state[i]) state[i] = {};
+    state[i][c] = inp.value;
+  });
+}
+
+function onChange() {
+  readForm(); saveState(); updateSummary();
+  PRODUCTS.forEach((_, i) => {
+    const hasData = COLS.some(c => { const v = parseFloat(state[i]?.[c.key]); return !isNaN(v) && v !== 0; });
+    const card = cardsEl.children[i];
+    if (card) card.classList.toggle('edit', hasData);
+  });
+  state._synced = false;
+  updateStatus();
+}
+
+function updateStatus() {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  if (state._synced) {
+    dot.className = 'status-dot synced';
+    txt.textContent = '已提交 ' + (state._syncedAt || '');
+  } else if (state._submitting) {
+    dot.className = 'status-dot';
+    dot.style.background = '#2196f3';
+    txt.textContent = '提交中...';
+  } else {
+    dot.className = 'status-dot unsynced';
+    txt.textContent = '未提交';
+  }
+}
+
+// ========== 提交到云端 ==========
+async function submitToCloud() {
+  readForm();
+  if (!state.store || !state.date) { showMsg('请选择门店和日期', true); return; }
+
+  const hasData = PRODUCTS.some((_, i) => COLS.some(c => { const v = parseFloat(state[i]?.[c.key]); return !isNaN(v) && v !== 0; }));
+  if (!hasData) { showMsg('请至少填写一条数据', true); return; }
+
+  state._submitting = true; updateStatus();
+  showMsg('提交中...');
+
+  const items = PRODUCTS.map((p, i) => ({
+    product: p,
+    up: parseFloat(state[i]?.up) || 0,
+    restock: parseFloat(state[i]?.restock) || 0,
+    loss: parseFloat(state[i]?.loss) || 0,
+    gift: parseFloat(state[i]?.gift) || 0,
+    taste: parseFloat(state[i]?.taste) || 0
+  }));
+
+  try {
+    const resp = await fetch(API_BASE + 'api/entries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        store: state.store,
+        date: state.date,
+        items: items,
+        photo_count: PRODUCTS.reduce((s, _, i) => s + (state[i]?._photos?.length || 0), 0)
+      })
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || `HTTP ${resp.status}`);
+    }
+
+    state._synced = true;
+    state._syncedAt = new Date().toLocaleTimeString();
+    saveState();
+    updateSummary();
+    updateStatus();
+    showMsg('提交成功！店长可实时查看');
+  } catch(e) {
+    state._submitting = false; updateStatus();
+    showMsg('提交失败: ' + e.message, true);
+  }
+}
+
+// ========== CSV 操作 ==========
+function buildCSVText() {
+  readForm();
+  const store = storeSel.value, date = dateInp.value;
+  let lines = '门店,日期,商品名称,上货数量,补货数量,报损数量,赠送数量,试吃数量\n';
+  PRODUCTS.forEach((p, i) => {
+    const vals = COLS.map(c => { const v = parseFloat(state[i]?.[c.key]); return isNaN(v) ? '0' : v; });
+    lines += `${store},${date},${p},${vals.join(',')}\n`;
+  });
+  return {text: '﻿' + lines, store, date};
+}
+
+function copyCSV() {
+  const {text, store, date} = buildCSVText();
+  if (!store || !date) { showMsg('请选择门店和日期', true); return; }
+  const plain = text.replace(/^﻿/, '');
+  navigator.clipboard.writeText(plain).then(() => showMsg('已复制，到微信粘贴发给店长')).catch(() => {
+    const ta = document.createElement('textarea'); ta.value = plain;
+    ta.style.cssText = 'position:fixed;left:-9999px'; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    showMsg('已复制');
+  });
+}
+
+async function shareZIP() {
+  readForm();
+  const store = storeSel.value, date = dateInp.value;
+  if (!store || !date) { showMsg('请选择门店和日期', true); return; }
+  showMsg('打包中...');
+  const zip = new JSZip();
+  const ds = date.replace(/-/g,''), folder = `${store}_${ds}`;
+  const {text} = buildCSVText();
+  zip.file(`${folder}/${store}_${ds}.csv`, text);
+  let pc = 0;
+  const pf = zip.folder(`${folder}/照片`);
+  PRODUCTS.forEach((p, i) => {
+    (state[i]?._photos || []).forEach((ph, pi) => {
+      const b64 = ph.split(',')[1];
+      if (b64) { pf.file(`${p.replace(/[（）()]/g,'_')}_${pi+1}.jpg`, b64, {base64:true}); pc++; }
+    });
+  });
+  const blob = await zip.generateAsync({type:'blob'});
+  const file = new File([blob], `${folder}.zip`, {type:'application/zip'});
+  try {
+    if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
+      await navigator.share({files:[file], title:`${store}_${date}`, text:`周黑鸭数据 (${pc}张照片)`});
+      showMsg('已分享'); return;
+    }
+  } catch(e) { if (e.name==='AbortError') { showMsg('已取消'); return; } }
+  downloadBlob(blob, `${folder}.zip`);
+  showMsg('已下载，可发微信给店长');
+}
+
+function saveCSV() {
+  const {text, store, date} = buildCSVText();
+  if (!store || !date) { showMsg('请选择门店和日期', true); return; }
+  downloadBlob(new Blob([text], {type:'text/csv;charset=utf-8'}), `${store}_${date.replace(/-/g,'')}.csv`);
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function clearAll() {
+  if (!confirm('确定清空所有数据（含照片）？')) return;
+  state = {}; localStorage.removeItem('zhouheiya_entry_v2');
+  buildCards(); showMsg('已清空');
+}
+
+function showMsg(text, isError) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg' + (isError ? ' err' : '');
+  setTimeout(() => { el.textContent = ''; el.className = 'msg'; }, 4000);
+}
+
+storeSel.addEventListener('change', saveState);
+dateInp.addEventListener('change', saveState);
+</script>
+</body>
+</html>

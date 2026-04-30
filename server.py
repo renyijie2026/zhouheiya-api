@@ -6,6 +6,13 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 DB = 'data.db'
 
+@app.after_request
+def cors(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS'
+    return response
+
 def init_db():
     with sqlite3.connect(DB) as conn:
         conn.execute('''CREATE TABLE IF NOT EXISTS entries (

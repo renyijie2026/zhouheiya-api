@@ -46,15 +46,23 @@ results = {}
 all_rows = []  # 收集所有数据行用于PDF
 csv_folder = '各店数据'
 
-# 收集所有CSV，按门店汇总（跨日期合并）
+# 收集所有CSV（单日文件 + 区间文件）
 store_files = defaultdict(list)  # store -> [(date_str, filepath)]
-all_dates = set()
+all_dates = set()     # 单日: {'0401', '0430'}
+all_ranges = set()    # 区间: {'0401-0430'}
+
 for fname in os.listdir(csv_folder):
     if not fname.endswith('.csv'):
         continue
-    # 跳过区间文件（如 "定州0401-0430.csv"），只取单日文件
-    if re.search(r'\d{4}-\d{4}\.csv$', fname):
+    # 区间文件（如 "定州0401-0430.csv"）
+    range_m = re.search(r'(\d{4}-\d{4})\.csv$', fname)
+    if range_m:
+        range_str = range_m.group(1)
+        store = fname[:range_m.start()]
+        store_files[store].append((range_str, os.path.join(csv_folder, fname)))
+        all_ranges.add(range_str)
         continue
+    # 单日文件（如 "定州0430.csv"）
     m = re.search(r'(\d{4})\.csv$', fname)
     if not m:
         continue
@@ -69,42 +77,50 @@ if not store_files:
 
 # 日期选择
 args = sys.argv[1:]
-sorted_all = sorted(all_dates)
+sorted_dates = sorted(all_dates)
+sorted_ranges = sorted(all_ranges)
+sorted_all = sorted_dates + sorted_ranges  # 单日在前，区间在后
 
 if args:
-    # 命令行直接指定
     if 'all' in args:
-        target_dates = all_dates
+        target_dates = all_dates | all_ranges
     else:
         target_dates = set(args)
 else:
-    # 交互菜单
-    print(f'\n可用日期 ({len(sorted_all)}个):')
-    for i, d in enumerate(sorted_all):
-        print(f'  [{i+1}] {d}')
-    print(f'  [0] 全部日期')
-    print(f'  [回车] 最新日期 ({sorted_all[-1]})')
-    choice = input('请选择 (多个用逗号分隔，如 1,2): ').strip()
+    print(f'\n可用日期:')
+    if sorted_dates:
+        print(f'  单日 ({len(sorted_dates)}个):')
+        for i, d in enumerate(sorted_dates):
+            print(f'    [{i+1}] {d}')
+    if sorted_ranges:
+        offset = len(sorted_dates)
+        print(f'  区间 ({len(sorted_ranges)}个):')
+        for i, r in enumerate(sorted_ranges):
+            print(f'    [{offset+i+1}] {r}')
+    print(f'  [0] 全部')
+    default_label = sorted_all[-1] if sorted_all else '(无)'
+    print(f'  [回车] 最新 ({default_label})')
+    choice = input('请选择 (多个用逗号分隔): ').strip()
 
     if choice == '':
         target_dates = {sorted_all[-1]}
     elif choice == '0':
-        target_dates = all_dates
+        target_dates = all_dates | all_ranges
     else:
         try:
             idxs = [int(x.strip()) for x in choice.replace('，', ',').split(',') if x.strip()]
             target_dates = {sorted_all[i-1] for i in idxs if 0 < i <= len(sorted_all)}
             if not target_dates:
-                print('无效选择，使用最新日期')
+                print('无效选择，使用最新')
                 target_dates = {sorted_all[-1]}
         except ValueError:
-            print('输入格式错误，使用最新日期')
+            print('输入格式错误，使用最新')
             target_dates = {sorted_all[-1]}
 
-invalid = target_dates - all_dates
+invalid = target_dates - (all_dates | all_ranges)
 if invalid:
     print(f'未找到日期: {", ".join(sorted(invalid))}')
-    print(f'可用日期: {", ".join(sorted(all_dates))}')
+    print(f'可用: {", ".join(sorted(all_dates | all_ranges))}')
     exit(1)
 
 # 过滤：只保留指定日期
@@ -120,13 +136,25 @@ print(f'汇总日期: {date_range}, 共{len(store_files)}个门店, {len(sorted_
 # 构造日期显示
 if len(sorted_dates) == 1:
     d = sorted_dates[0]
-    date_display = f'2026/{d[:2]}/{d[2:]}'
+    if '-' in d:
+        # 区间格式 "0401-0430"
+        d1, d2 = d.split('-')
+        month = int(d1[:2])
+        last_day = calendar.monthrange(2026, month)[1]
+        if int(d1[2:]) == 1 and int(d2) == last_day:
+            date_display = f'2026年{month}月汇总'
+        else:
+            date_display = f'2026/{d1[:2]}/{d1[2:]}-2026/{d2[:2]}/{d2[2:]}'
+    else:
+        date_display = f'2026/{d[:2]}/{d[2:]}'
 else:
     d1, d2 = sorted_dates[0], sorted_dates[-1]
-    # 检测是否为整月汇总
+    # 检查是否有区间格式
+    if '-' in d1: d1 = d1.split('-')[0]
+    if '-' in d2: d2 = d2.split('-')[-1]
     month = int(d1[:2])
     last_day = calendar.monthrange(2026, month)[1]
-    is_full_month = (int(d1[2:]) == 1 and int(d2[2:]) == last_day and all(
+    is_full_month = (int(d1[2:]) == 1 and int(d2) == last_day and all(
         f'{month:02d}{day:02d}' in sorted_dates for day in range(1, last_day+1)
     ))
     if is_full_month:

@@ -287,8 +287,9 @@ for i, h in enumerate(headers):
 pdf.ln()
 
 pdf.set_font('hei', '', 10)
-for store in ['尚峰', '宣化', '未来石', '定州', '民心', '长安']:
-    r = results.get(store, {})
+sorted_stores = sorted(results.keys(), key=lambda s: results[s].get('sales', 0), reverse=True)
+for store in sorted_stores:
+    r = results[store]
     vals = [
         store,
         f'{r.get("sales",0):,.0f}',
@@ -299,11 +300,6 @@ for store in ['尚峰', '宣化', '未来石', '定州', '民心', '长安']:
     for i, val in enumerate(vals):
         pdf.cell(col_w[i], 8, val, border=1, align='C' if i > 0 else 'L')
     pdf.ln()
-
-# High-margin product list
-pdf.ln(4)
-pdf.set_font('hei', 'B', 9)
-pdf.cell(0, 7, f'高毛利产品（成本率≥60%）: {", ".join(high_margin_names)}', new_x='LMARGIN', new_y='NEXT')
 
 pdf.output(pdf_path)
 print(f'PDF 已保存到桌面: {pdf_name}')

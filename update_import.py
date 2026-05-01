@@ -12,6 +12,7 @@ import calendar, csv, os, re, sys
 import openpyxl
 import shutil
 from collections import defaultdict
+from fpdf import FPDF
 
 SRC = '周黑鸭毛利测算_最终.xlsx'
 
@@ -42,6 +43,7 @@ store_sheet2_map = {
 high_margin_names = [p for p, info in products.items() if info['C'] >= 0.60]
 
 results = {}
+all_rows = []  # 收集所有数据行用于PDF
 csv_folder = '各店数据'
 
 # 收集所有CSV，按门店汇总（跨日期合并）
@@ -162,7 +164,7 @@ for store in ['尚峰', '宣化', '民心', '长安', '定州', '未来石']:
             except (ValueError, IndexError):
                 continue
 
-    # 写入数据区
+    # 写入数据区 & 收集PDF行
     data_row = 25
     for pname, pdata in store_data.items():
         ws.cell(row=data_row, column=1).value = date_display
@@ -170,6 +172,7 @@ for store in ['尚峰', '宣化', '民心', '长安', '定州', '未来石']:
         ws.cell(row=data_row, column=3).value = '周黑鸭（ZHOUHEIYA）'
         ws.cell(row=data_row, column=4).value = pdata['qty']
         ws.cell(row=data_row, column=5).value = pdata['amt']
+        all_rows.append((store, date_display, pname, pdata['qty'], pdata['amt']))
         data_row += 1
 
     # Calculate metrics
@@ -232,4 +235,37 @@ with open('import_result.txt', 'w', encoding='utf-8') as out:
         r = results.get(store, {})
         out.write(f'{store:<8} {r.get("sales",0):>12,.2f} {r.get("margin",0):>10.4f} {r.get("high_margin_ratio",0):>10.4f} {r.get("discount",0):>10.4f}\n')
 
-print('Done')
+# ========== PDF 输出 ==========
+desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+pdf_name = f'毛利测算_{date_display.replace("/","").replace("年","").replace("月","").replace("汇总","月")}.pdf'
+pdf_path = os.path.join(desktop, pdf_name)
+
+pdf = FPDF()
+pdf.add_page()
+pdf.add_font('hei', '', 'C:/Windows/Fonts/simhei.ttf')
+pdf.add_font('hei', 'B', 'C:/Windows/Fonts/simhei.ttf')
+
+# Title
+pdf.set_font('hei', 'B', 14)
+pdf.cell(0, 10, f'周黑鸭毛利测算 — {date_display}', align='C', new_x='LMARGIN', new_y='NEXT')
+pdf.ln(4)
+
+# Table header
+col_w = [22, 54, 42, 36, 36]  # widths in mm
+headers = ['门店', '商品名称', '日期', '数量', '金额']
+pdf.set_font('hei', 'B', 9)
+pdf.set_fill_color(230, 230, 230)
+for i, h in enumerate(headers):
+    pdf.cell(col_w[i], 8, h, border=1, fill=True, align='C')
+pdf.ln()
+
+# Table rows
+pdf.set_font('hei', '', 8)
+for store, dd, pname, qty, amt in all_rows:
+    row_data = [store, pname, dd, f'{qty:.0f}', f'{amt:.2f}']
+    for i, val in enumerate(row_data):
+        pdf.cell(col_w[i], 7, str(val), border=1, align='C' if i > 0 else 'L')
+    pdf.ln()
+
+pdf.output(pdf_path)
+print(f'PDF 已保存到桌面: {pdf_name}')

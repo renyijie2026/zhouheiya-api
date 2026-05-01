@@ -8,7 +8,7 @@
   python update_import.py 0428 0429    → 汇总指定日期
   python update_import.py all          → 汇总全部日期
 """
-import csv, os, re, sys
+import calendar, csv, os, re, sys
 import openpyxl
 import shutil
 from collections import defaultdict
@@ -49,6 +49,9 @@ store_files = defaultdict(list)  # store -> [(date_str, filepath)]
 all_dates = set()
 for fname in os.listdir(csv_folder):
     if not fname.endswith('.csv'):
+        continue
+    # 跳过区间文件（如 "定州0401-0430.csv"），只取单日文件
+    if re.search(r'\d{4}-\d{4}\.csv$', fname):
         continue
     m = re.search(r'(\d{4})\.csv$', fname)
     if not m:
@@ -115,10 +118,19 @@ print(f'汇总日期: {date_range}, 共{len(store_files)}个门店, {len(sorted_
 # 构造日期显示
 if len(sorted_dates) == 1:
     d = sorted_dates[0]
-    date_display = f'2026/{d[:2]}/{d[2:]}-2026/{d[:2]}/{d[2:]}'
+    date_display = f'2026/{d[:2]}/{d[2:]}'
 else:
     d1, d2 = sorted_dates[0], sorted_dates[-1]
-    date_display = f'2026/{d1[:2]}/{d1[2:]}-2026/{d2[:2]}/{d2[2:]}'
+    # 检测是否为整月汇总
+    month = int(d1[:2])
+    last_day = calendar.monthrange(2026, month)[1]
+    is_full_month = (int(d1[2:]) == 1 and int(d2[2:]) == last_day and all(
+        f'{month:02d}{day:02d}' in sorted_dates for day in range(1, last_day+1)
+    ))
+    if is_full_month:
+        date_display = f'2026年{month}月汇总'
+    else:
+        date_display = f'2026/{d1[:2]}/{d1[2:]}-2026/{d2[:2]}/{d2[2:]}'
 
 # 清空数据区
 for row in range(25, 80):

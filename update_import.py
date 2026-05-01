@@ -273,27 +273,37 @@ pdf.add_page()
 pdf.add_font('hei', '', 'C:/Windows/Fonts/simhei.ttf')
 pdf.add_font('hei', 'B', 'C:/Windows/Fonts/simhei.ttf')
 
-# Title
 pdf.set_font('hei', 'B', 14)
 pdf.cell(0, 10, f'周黑鸭毛利测算 — {date_display}', align='C', new_x='LMARGIN', new_y='NEXT')
-pdf.ln(4)
+pdf.ln(6)
 
-# Table header
-col_w = [22, 54, 42, 36, 36]  # widths in mm
-headers = ['门店', '商品名称', '日期', '数量', '金额']
-pdf.set_font('hei', 'B', 9)
+# Summary table (Sheet2 data)
+col_w = [32, 42, 42, 42, 32]
+headers = ['门店', '销售额', '毛利率', '高毛利占比', '折扣率']
+pdf.set_font('hei', 'B', 10)
 pdf.set_fill_color(230, 230, 230)
 for i, h in enumerate(headers):
-    pdf.cell(col_w[i], 8, h, border=1, fill=True, align='C')
+    pdf.cell(col_w[i], 9, h, border=1, fill=True, align='C')
 pdf.ln()
 
-# Table rows
-pdf.set_font('hei', '', 8)
-for store, dd, pname, qty, amt in all_rows:
-    row_data = [store, pname, dd, f'{qty:.0f}', f'{amt:.2f}']
-    for i, val in enumerate(row_data):
-        pdf.cell(col_w[i], 7, str(val), border=1, align='C' if i > 0 else 'L')
+pdf.set_font('hei', '', 10)
+for store in ['尚峰', '宣化', '未来石', '定州', '民心', '长安']:
+    r = results.get(store, {})
+    vals = [
+        store,
+        f'{r.get("sales",0):,.0f}',
+        f'{r.get("margin",0)*100:.1f}%',
+        f'{r.get("high_margin_ratio",0)*100:.1f}%',
+        f'{r.get("discount",0)*100:.1f}%'
+    ]
+    for i, val in enumerate(vals):
+        pdf.cell(col_w[i], 8, val, border=1, align='C' if i > 0 else 'L')
     pdf.ln()
+
+# High-margin product list
+pdf.ln(4)
+pdf.set_font('hei', 'B', 9)
+pdf.cell(0, 7, f'高毛利产品（成本率≥60%）: {", ".join(high_margin_names)}', new_x='LMARGIN', new_y='NEXT')
 
 pdf.output(pdf_path)
 print(f'PDF 已保存到桌面: {pdf_name}')

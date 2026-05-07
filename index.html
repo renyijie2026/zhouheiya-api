@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>上货汇总表</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;color:#333;padding:12px;max-width:600px;margin:0 auto}
+h1{font-size:20px;text-align:center;margin:8px 0 16px;color:#1a1a1a}
+.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
+label{font-size:14px;font-weight:600;display:block;margin-bottom:6px;color:#555}
+textarea{width:100%;height:160px;border:1.5px solid #ddd;border-radius:8px;padding:10px;font-size:15px;line-height:1.6;resize:vertical;font-family:inherit}
+.row{display:flex;gap:10px;align-items:center;margin-bottom:6px}
+.row input{border:1.5px solid #ddd;border-radius:8px;padding:8px 10px;font-size:15px;width:100%;font-family:inherit}
+.hint{font-size:12px;color:#999;margin-top:4px}
+.btn{display:block;width:100%;padding:14px;font-size:17px;font-weight:700;border:none;border-radius:10px;cursor:pointer;text-align:center;margin-bottom:8px}
+.btn-primary{background:#2563eb;color:#fff}
+.btn-success{background:#16a34a;color:#fff}
+.btn:active{opacity:0.8}
+#preview{overflow-x:auto;font-size:13px}
+#preview table{border-collapse:collapse;width:100%;min-width:500px}
+#preview th,#preview td{border:1px solid #ddd;padding:6px 8px;text-align:center;white-space:nowrap}
+#preview th{background:#f0f4ff;font-weight:600;position:sticky;top:0}
+#preview td:first-child{text-align:left;font-weight:500}
+#preview tr:last-child{font-weight:700;background:#fffde7}
+.summary{font-size:14px;line-height:1.8}
+.summary span{font-weight:600}
+#status{padding:10px;border-radius:8px;font-size:14px;text-align:center;margin-top:8px;display:none}
+#status.ok{background:#ecfdf5;color:#065f46;display:block}
+#status.err{background:#fef2f2;color:#991b1b;display:block}
+</style>
+</head>
+<body>
+
+<h1>卤味四店 上货汇总</h1>
+
+<div class="card">
+  <label>日期</label>
+  <div class="row">
+    <input type="number" id="month" placeholder="月" min="1" max="12" style="width:80px">
+    <span style="font-size:18px">月</span>
+    <input type="number" id="day" placeholder="日" min="1" max="31" style="width:80px">
+    <span style="font-size:18px">日</span>
+  </div>
+</div>
+
+<div class="card">
+  <label>粘贴店员消息</label>
+  <textarea id="input" placeholder="鸭头4 甜辣鸭脖10 长安上货
+鸭脖7 翅尖3 长安补货
+料渣0.5 长安报损
+..."></textarea>
+  <div class="hint">格式: 商品+数量 ... 门店+类型。可分多次粘贴追加。</div>
+</div>
+
+<button class="btn btn-primary" onclick="doParse()">生成表格</button>
+
+<div id="status"></div>
+
+<div class="card" id="previewCard" style="display:none">
+  <label>预览</label>
+  <div id="preview"></div>
+</div>
+
+<button id="dlBtn" class="btn btn-success" style="display:none" onclick="doDownload()">下载 Excel</button>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// Config (mirrors config_update.json)
+// ═══════════════════════════════════════════════════════════
+const CONFIG = {
+  year: 2026,
+  stores: ['长安','定州','尚峰','未来石'],
+  columns: ['上货','销售','报损'],
+  typeMapping: { '上货':'上货', '补货':'上货', '销售':'销售', '报损':'报损', '试吃':'报损' },
+  aliases: {
+    '辣鸭脖':'甜辣鸭脖','鸭脖':'甜辣鸭脖','凤爪':'鸡爪','翅尖':'鸡翅尖',
+    '鸭珍':'鸭胗','锁骨':'鸭锁骨','莲藕':'藕片','豆干':'香干','鸭翅':'甜辣鸭翅',
+    '辣鸭翅':'甜辣鸭翅','卤香干':'香干','鸭脆肠':'脆肠','虎皮鸡爪':'鸡爪','五脖':'五香鸭脖'
+  },
+  packProducts: ['酱板鸭','鸡爪','鸭舌','鸭掌','鸭头','脆肠','鸭胗','鸭肠'],
+  packWeight: 0.5
+};
+
+// Build known products list (longest first)
+const KNOWN = [...new Set([
+  ...Object.values(CONFIG.aliases),
+  ...Object.keys(CONFIG.aliases),
+  ...CONFIG.packProducts,
+  '料渣','辣子鸡','五香鸭翅','甜辣鸭脖','甜辣鸭翅','五香鸭脖','鸡翅尖','鸭锁骨','鸭肠','脆肠','香干','藕片','鸭掌','酱板鸭','鸭舌','鸭头'
+])].sort((a,b) => b.length - a.length);
+
+// ═══════════════════════════════════════════════════════════
+// Parser
+// ═══════════════════════════════════════════════════════════
+function parseDate(text) {
+  const m = text.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*[号日]?/g);
+  if (!m) return null;
+  const last = m[m.length-1];
+  const nums = last.match(/(\d{1,2})/g);
+  return { month: parseInt(nums[0]), day: parseInt(nums[1]) };
+}
+
+function extractStoreType(line) {
+  const stores = CONFIG.stores.join('|');
+  const types = Object.keys(CONFIG.typeMapping).join('|');
+  const re = new RegExp(`(${stores})\\s*(${types})\\s*$`);
+  const m = line.match(re);
+  if (!m) return null;
+  return {
+    store: m[1],
+    rawType: m[2],
+    colType: CONFIG.typeMapping[m[2]],
+    body: line.substring(0, m.index).trim()
+  };
+}
+
+function extractEntries(body) {
+  const entries = [];
+  let pos = 0;
+  while (pos < body.length) {
+    if (' \t,，、'.includes(body[pos])) { pos++; continue; }
+    let matched = false;
+    for (const prod of KNOWN) {
+      if (body.startsWith(prod, pos)) {
+        const rest = body.substring(pos + prod.length);
+        const m = rest.match(/^\s*(\d+\.?\d*)/);
+        if (m) {
+          entries.push({ product: prod, qty: parseFloat(m[1]) });
+          pos += prod.length + m[0].length;
+          matched = true;
+          break;
+        }
+      }
+    }
+    if (!matched) {
+      const m = body.substring(pos).match(/^([一-鿿]+)\s*(\d+\.?\d*)/);
+      if (m) {
+        entries.push({ product: m[1], qty: parseFloat(m[2]) });
+        pos += m[0].length;
+      } else {
+        pos++;
+      }
+    }
+  }
+  return entries;
+}
+
+function normalizeProduct(name) {
+  let seen = new Set();
+  while (CONFIG.aliases[name] && !seen.has(name)) {
+    seen.add(name);
+    name = CONFIG.aliases[name];
+  }
+  return name;
+}
+
+function applyConversion(product, qty, colType) {
+  if (colType === '上货' && CONFIG.packProducts.includes(product)) {
+    return qty * CONFIG.packWeight;
+  }
+  return qty;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Main logic
+// ═══════════════════════════════════════════════════════════
+let gData = null, gDate = null;
+
+function doParse() {
+  const text = document.getElementById('input').value.trim();
+  if (!text) { showStatus('请先粘贴店员消息', 'err'); return; }
+
+  // Date
+  let month = parseInt(document.getElementById('month').value);
+  let day = parseInt(document.getElementById('day').value);
+  if (!month || !day) {
+    const d = parseDate(text);
+    if (d) { month = d.month; day = d.day; }
+    else {
+      const now = new Date();
+      month = now.getMonth() + 1;
+      day = now.getDate();
+    }
+  }
+  document.getElementById('month').value = month;
+  document.getElementById('day').value = day;
+  gDate = { month, day };
+
+  // Parse lines
+  const data = {}; // { store: { product: { col: qty } } }
+  for (const store of CONFIG.stores) {
+    data[store] = {};
+  }
+
+  for (let line of text.split('\n')) {
+    line = line.trim();
+    if (!line) continue;
+    if (/^\d{1,2}\s*月\s*\d{1,2}\s*[号日]?\s*$/.test(line)) continue;
+    if (line.startsWith('|') || line.startsWith('---')) continue;
+
+    const r = extractStoreType(line);
+    if (!r) continue;
+
+    // 料渣 special handling
+    let lzQty = null;
+    const lzMatch = r.body.match(/料渣\s*(\d+\.?\d*)/);
+    if (lzMatch) {
+      lzQty = parseFloat(lzMatch[1]);
+      r.body = r.body.replace(/料渣\s*\d+\.?\d*/, '').trim();
+    }
+
+    const entries = extractEntries(r.body);
+    for (const e of entries) {
+      const canon = normalizeProduct(e.product);
+      let qty = applyConversion(canon, e.qty, r.colType);
+      if (!data[r.store][canon]) data[r.store][canon] = {};
+      data[r.store][canon][r.colType] = (data[r.store][canon][r.colType] || 0) + qty;
+    }
+
+    if (lzQty !== null) {
+      if (!data[r.store]['料渣']) data[r.store]['料渣'] = {};
+      data[r.store]['料渣']['报损'] = (data[r.store]['料渣']['报损'] || 0) + lzQty;
+    }
+  }
+
+  // Check if any data was parsed
+  let hasData = false;
+  for (const store of CONFIG.stores) {
+    if (Object.keys(data[store]).length > 0) { hasData = true; break; }
+  }
+  if (!hasData) { showStatus('未识别到数据，请检查格式', 'err'); return; }
+
+  gData = data;
+  renderPreview(data);
+  document.getElementById('previewCard').style.display = 'block';
+  document.getElementById('dlBtn').style.display = 'block';
+  showStatus(`已识别 ${month}月${day}日 数据`, 'ok');
+}
+
+function renderPreview(data) {
+  // Collect all products, 料渣 last
+  const allP = new Set();
+  for (const store of CONFIG.stores) {
+    Object.keys(data[store]).forEach(p => allP.add(p));
+  }
+  const products = [...allP].filter(p => p !== '料渣').sort();
+  if (allP.has('料渣')) products.push('料渣');
+
+  let html = '<table><thead><tr><th>商品</th>';
+  for (const store of CONFIG.stores) {
+    for (const col of CONFIG.columns) {
+      html += `<th>${store}${col}</th>`;
+    }
+  }
+  html += '</tr></thead><tbody>';
+
+  for (const p of products) {
+    html += `<tr><td>${p}</td>`;
+    for (const store of CONFIG.stores) {
+      for (const col of CONFIG.columns) {
+        const v = data[store][p]?.[col];
+        html += `<td>${v != null ? Number(v.toFixed(3)) : ''}</td>`;
+      }
+    }
+    html += '</tr>';
+  }
+
+  // Totals row
+  html += '<tr><td>合计</td>';
+  for (const store of CONFIG.stores) {
+    for (const col of CONFIG.columns) {
+      let t = 0;
+      for (const p of products) {
+        t += data[store][p]?.[col] || 0;
+      }
+      html += `<td>${t ? t.toFixed(3) : ''}</td>`;
+    }
+  }
+  html += '</tr></tbody></table>';
+  document.getElementById('preview').innerHTML = html;
+}
+
+function doDownload() {
+  if (!gData || !gDate) return;
+
+  const { month, day } = gDate;
+  const products = new Set();
+  for (const store of CONFIG.stores) {
+    Object.keys(gData[store]).forEach(p => products.add(p));
+  }
+  const sorted = [...products].filter(p => p !== '料渣').sort();
+  if (products.has('料渣')) sorted.push('料渣');
+
+  // Build sheet data
+  const rows = [];
+
+  // Title row
+  const title = `${CONFIG.year}年${month}月${day}日 四店上货 & 销售 & 报损汇总 (单位:公斤)`;
+  rows.push([title]);
+
+  // Header row
+  const header = ['商品名称'];
+  for (const store of CONFIG.stores) {
+    for (const col of CONFIG.columns) {
+      header.push(`${store}${col}`);
+    }
+  }
+  rows.push(header);
+
+  // Data rows
+  for (const p of sorted) {
+    const row = [p];
+    for (const store of CONFIG.stores) {
+      for (const col of CONFIG.columns) {
+        const v = gData[store][p]?.[col];
+        row.push(v != null ? parseFloat(v.toFixed(3)) : '');
+      }
+    }
+    rows.push(row);
+  }
+
+  // Totals row
+  const totals = ['合计'];
+  for (const store of CONFIG.stores) {
+    for (const col of CONFIG.columns) {
+      let t = 0;
+      for (const p of sorted) {
+        t += gData[store][p]?.[col] || 0;
+      }
+      totals.push(t ? parseFloat(t.toFixed(3)) : '');
+    }
+  }
+  rows.push(totals);
+
+  // Create workbook
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+
+  // Column widths
+  ws['!cols'] = [{wch:16}, ...Array(12).fill({wch:9})];
+
+  XLSX.utils.book_append_sheet(wb, ws, `${month}月${day}号上货汇总`);
+  XLSX.writeFile(wb, `${month}月${day}号_四店_上货汇总.xlsx`);
+  showStatus('Excel 已下载', 'ok');
+}
+
+function showStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = type;
+  el.style.display = 'block';
+}
+
+// Init: set today's date
+(function(){
+  const now = new Date();
+  document.getElementById('month').value = now.getMonth() + 1;
+  document.getElementById('day').value = now.getDate();
+})();
+</script>
+</body>
+</html>
